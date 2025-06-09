@@ -53,9 +53,6 @@ spec:
           volumeMounts:
             - name: couchdb-data
               mountPath: /opt/couchdb/data
-            - name: couchdb-config
-              mountPath: /opt/couchdb/etc/local.d/obsidian.ini
-              subPath: obsidian.ini
 
           resources:
             requests:
@@ -69,18 +66,15 @@ spec:
             httpGet:
               path: /_up
               port: 5984
-            initialDelaySeconds: 10
-            periodSeconds: 5
-            timeoutSeconds: 3
-            failureThreshold: 5
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 10
 
       volumes:
         - name: couchdb-data
           persistentVolumeClaim:
             claimName: couchdb-data-pvc
-        - name: couchdb-config
-          configMap:
-            name: couchdb-config
 
 ---
 apiVersion: v1
@@ -93,30 +87,4 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 8Gi
-
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: couchdb-config
-  namespace: obsidian-sync
-data:
-  obsidian.ini: |
-    [couchdb]
-    single_node=true
-    max_document_size = 50000000
-
-    [chttpd]
-    require_valid_user = true
-    max_http_request_size = 4294967296
-
-    [httpd]
-    WWW-Authenticate = Basic realm="couchdb"
-    enable_cors = true
-
-    [cors]
-    origins = *
-    credentials = true
-    methods = GET, PUT, POST, HEAD, DELETE
-    headers = accept, authorization, content-type, origin, referer, x-requested-with
+      storage: 2Gi
