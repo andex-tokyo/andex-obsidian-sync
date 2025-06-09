@@ -16,18 +16,14 @@ spec:
     spec:
       initContainers:
         - name: setup-config
-          image: couchdb:3.3
+          image: couchdb:3.5.0
           command:
             - /bin/sh
             - -c
             - |
               echo "Setting up persistent configuration..."
 
-              # 設定ディレクトリを作成
-              mkdir -p /persistent-config/local.d
-
-              # 設定ファイルを作成
-              cat > /persistent-config/local.d/obsidian.ini << 'EOF'
+              cat > /persistent-config/obsidian.ini << 'EOF'
               [couchdb]
               single_node=true
               max_document_size = 50000000
@@ -54,12 +50,12 @@ spec:
               headers = accept, authorization, content-type, origin, referer, x-requested-with
               EOF
 
-              echo "Configuration created:"
-              cat /persistent-config/local.d/obsidian.ini
+              echo "Configuration created at /persistent-config/obsidian.ini:"
+              cat /persistent-config/obsidian.ini
 
               # 権限設定
-              chown -R couchdb:couchdb /persistent-config/ || true
-              chmod -R 644 /persistent-config/ || true
+              chown couchdb:couchdb /persistent-config/obsidian.ini || true
+              chmod 644 /persistent-config/obsidian.ini || true
 
           volumeMounts:
             - name: couchdb-config-persistent
