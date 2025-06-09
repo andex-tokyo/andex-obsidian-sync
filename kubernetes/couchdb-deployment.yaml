@@ -53,6 +53,11 @@ spec:
             - /bin/sh
             - -c
             - |
+
+              hostname="http://localhost:5984"
+              username="admin"
+              password="${COUCHDB_PASSWORD}"
+
               echo "Waiting for CouchDB to be ready..."
               for i in $(seq 1 60); do
                 if curl -s -f "${hostname}/_up" > /dev/null 2>&1; then
@@ -62,10 +67,6 @@ spec:
                 echo "Attempt $i..."
                 sleep 5
               done
-
-              hostname="http://localhost:5984"
-              username="admin"
-              password="${COUCHDB_PASSWORD}"
 
               echo "-- Configuring CouchDB by REST APIs... -->"
 
