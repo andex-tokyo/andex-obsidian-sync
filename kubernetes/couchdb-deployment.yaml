@@ -53,8 +53,15 @@ spec:
             - /bin/sh
             - -c
             - |
-              echo "Waiting for CouchDB to be ready for configuration..."
-              sleep 10  # CouchDBが完全に起動するまで待機
+              echo "Waiting for CouchDB to be ready..."
+              for i in $(seq 1 60); do
+                if curl -s -f "${hostname}/_up" > /dev/null 2>&1; then
+                  echo "CouchDB is ready!"
+                  break
+                fi
+                echo "Attempt $i..."
+                sleep 5
+              done
 
               hostname="http://localhost:5984"
               username="admin"
