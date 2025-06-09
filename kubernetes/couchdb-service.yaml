@@ -1,0 +1,15 @@
+# kubernetes/couchdb-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: couchdb
+  namespace: obsidian-sync
+spec:
+  type: NodePort
+  selector:
+    app: couchdb
+  ports:
+    - port: 5984
+      targetPort: 5984
+      nodePort: 32323
+      name: couchdb

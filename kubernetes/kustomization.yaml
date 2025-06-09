@@ -1,0 +1,5 @@
+# kubernetes/kustomization.yaml
+resources:
+  - couchdb-secrets-sealed.yaml
+  - couchdb-deployment.yaml
+  - couchdb-service.yaml

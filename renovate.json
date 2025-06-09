@@ -1,0 +1,15 @@
+{
+  "extends": ["config:recommended"],
+  "regexManagers": [
+    {
+      "fileMatch": ["kubernetes/couchdb-deployment.yaml"],
+      "matchStrings": [
+        "image: couchdb:(?<currentValue>.*)"
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "couchdb",
+      "versioningTemplate": "semver"
+    }
+  ],
+  "assignees": ["andex-tokyo"]
+}

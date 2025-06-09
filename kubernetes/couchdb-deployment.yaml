@@ -1,0 +1,122 @@
+# kubernetes/couchdb-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: couchdb
+  namespace: obsidian-sync
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: couchdb
+  template:
+    metadata:
+      labels:
+        app: couchdb
+    spec:
+      containers:
+        - name: couchdb
+          image: couchdb:3.3
+          env:
+            # 管理者設定
+            - name: COUCHDB_USER
+              value: "admin"
+            - name: COUCHDB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: couchdb-secrets
+                  key: admin-password
+
+            # クラスター設定（シングルノード）
+            - name: COUCHDB_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: couchdb-secrets
+                  key: cookie
+
+            # CORS設定（Obsidianからのアクセスを許可）
+            - name: COUCHDB_CORS_ENABLE_CORS
+              value: "true"
+            - name: COUCHDB_CORS_CREDENTIALS
+              value: "true"
+            - name: COUCHDB_CORS_ORIGINS
+              value: "*"
+            - name: COUCHDB_CORS_HEADERS
+              value: "accept, authorization, content-type, origin, referer"
+            - name: COUCHDB_CORS_METHODS
+              value: "GET, PUT, POST, HEAD, DELETE"
+
+          ports:
+            - containerPort: 5984
+              name: couchdb
+
+          volumeMounts:
+            - name: couchdb-data
+              mountPath: /opt/couchdb/data
+            - name: couchdb-config
+              mountPath: /opt/couchdb/etc/local.d/obsidian.ini
+              subPath: obsidian.ini
+
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+
+          readinessProbe:
+            httpGet:
+              path: /_up
+              port: 5984
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 5
+
+      volumes:
+        - name: couchdb-data
+          persistentVolumeClaim:
+            claimName: couchdb-data-pvc
+        - name: couchdb-config
+          configMap:
+            name: couchdb-config
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: couchdb-data-pvc
+  namespace: obsidian-sync
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 8Gi
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: couchdb-config
+  namespace: obsidian-sync
+data:
+  obsidian.ini: |
+    [couchdb]
+    single_node=true
+    max_document_size = 50000000
+
+    [chttpd]
+    require_valid_user = true
+    max_http_request_size = 4294967296
+
+    [httpd]
+    WWW-Authenticate = Basic realm="couchdb"
+    enable_cors = true
+
+    [cors]
+    origins = *
+    credentials = true
+    methods = GET, PUT, POST, HEAD, DELETE
+    headers = accept, authorization, content-type, origin, referer, x-requested-with
