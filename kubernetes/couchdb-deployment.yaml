@@ -1,4 +1,4 @@
-# kubernetes/couchdb-deployment-env.yaml
+# kubernetes/couchdb-deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,7 +18,7 @@ spec:
         - name: couchdb
           image: couchdb:3.5.0
           env:
-            # 基本設定
+            # 管理者設定
             - name: COUCHDB_USER
               value: "admin"
             - name: COUCHDB_PASSWORD
@@ -26,27 +26,13 @@ spec:
                 secretKeyRef:
                   name: couchdb-secrets
                   key: admin-password
+
+            # クラスター設定（シングルノード）
             - name: COUCHDB_SECRET
               valueFrom:
                 secretKeyRef:
                   name: couchdb-secrets
                   key: cookie
-
-            # セキュリティ設定
-            - name: COUCHDB_REQUIRE_VALID_USER
-              value: "true"
-
-            # CORS設定
-            - name: COUCHDB_ENABLE_CORS
-              value: "true"
-            - name: COUCHDB_CORS_CREDENTIALS
-              value: "true"
-            - name: COUCHDB_CORS_ORIGINS
-              value: "*"
-            - name: COUCHDB_CORS_HEADERS
-              value: "accept,authorization,content-type,origin,referer,x-requested-with"
-            - name: COUCHDB_CORS_METHODS
-              value: "GET,PUT,POST,HEAD,DELETE"
 
           ports:
             - containerPort: 5984
@@ -55,6 +41,8 @@ spec:
           volumeMounts:
             - name: couchdb-data
               mountPath: /opt/couchdb/data
+            - name: couchdb-config
+              mountPath: /opt/couchdb/etc/local.d
 
           resources:
             requests:
@@ -77,6 +65,9 @@ spec:
         - name: couchdb-data
           persistentVolumeClaim:
             claimName: couchdb-data-pvc
+        - name: couchdb-config
+          configMap:
+            name: couchdb-config
 
 ---
 apiVersion: v1
@@ -90,3 +81,32 @@ spec:
   resources:
     requests:
       storage: 2Gi
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: couchdb-config
+  namespace: obsidian-sync
+data:
+  obsidian.ini: |
+    [couchdb]
+    single_node=true
+    max_document_size = 50000000
+
+    [chttpd]
+    require_valid_user = true
+    max_http_request_size = 4294967296
+
+    [chttpd_auth]
+    require_valid_user = true
+
+    [httpd]
+    WWW-Authenticate = Basic realm="couchdb"
+    enable_cors = true
+
+    [cors]
+    origins = *
+    credentials = true
+    methods = GET, PUT, POST, HEAD, DELETE
+    headers = accept, authorization, content-type, origin, referer, x-requested-with
