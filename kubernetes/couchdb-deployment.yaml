@@ -46,15 +46,6 @@ spec:
               memory: "1Gi"
               cpu: "500m"
 
-          readinessProbe:
-            httpGet:
-              path: /_up
-              port: 5984
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 10
-
         # サイドカーコンテナとして設定スクリプトを実行
         - name: couchdb-configurator
           image: curlimages/curl:latest
