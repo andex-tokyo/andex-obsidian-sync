@@ -51,7 +51,7 @@ spec:
               echo "Configuration file created:"
               cat /config/local.d/obsidian.ini
           volumeMounts:
-            - name: config-volume
+            - name: couchdb-config
               mountPath: /config
 
       containers:
