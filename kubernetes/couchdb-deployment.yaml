@@ -38,21 +38,6 @@ spec:
           volumeMounts:
             - name: couchdb-data
               mountPath: /opt/couchdb/data
-            - name: setup-script
-              mountPath: /setup-script.sh
-              subPath: setup-script.sh
-
-          # PostStartフックで設定スクリプトを実行
-          lifecycle:
-            postStart:
-              exec:
-                command:
-                  - /bin/bash
-                  - -c
-                  - |
-                    # バックグラウンドで設定スクリプトを実行
-                    nohup /bin/bash /setup-script.sh > /tmp/setup.log 2>&1 &
-
           resources:
             requests:
               memory: "256Mi"
@@ -70,77 +55,72 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 10
 
+        # サイドカーコンテナとして設定スクリプトを実行
+        - name: couchdb-configurator
+          image: curlimages/curl:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Waiting for CouchDB to be ready for configuration..."
+              sleep 60  # CouchDBが完全に起動するまで待機
+
+              hostname="http://localhost:5984"
+              username="admin"
+              password="${COUCHDB_PASSWORD}"
+
+              echo "-- Configuring CouchDB by REST APIs... -->"
+
+              # 設定チェック：既に設定済みかどうか確認
+              if curl -s -u "${username}:${password}" "${hostname}/_node/nonode@nohost/_config/cors/origins" | grep -q "obsidian"; then
+                echo "CouchDB already configured, skipping setup"
+                # 設定済みの場合は無限ループで待機（サイドカーとして動作継続）
+                while true; do sleep 86400; done
+              fi
+
+              echo "Starting fresh configuration..."
+
+              until (curl -X POST "${hostname}/_cluster_setup" -H "Content-Type: application/json" -d "{\"action\":\"enable_single_node\",\"username\":\"${username}\",\"password\":\"${password}\",\"bind_address\":\"0.0.0.0\",\"port\":5984,\"singlenode\":true}" --user "${username}:${password}"); do sleep 5; done
+
+              until (curl -X PUT "${hostname}/_node/nonode@nohost/_config/chttpd/require_valid_user" -H "Content-Type: application/json" -d '"true"' --user "${username}:${password}"); do sleep 5; done
+
+              until (curl -X PUT "${hostname}/_node/nonode@nohost/_config/chttpd_auth/require_valid_user" -H "Content-Type: application/json" -d '"true"' --user "${username}:${password}"); do sleep 5; done
+
+              until (curl -X PUT "${hostname}/_node/nonode@nohost/_config/httpd/WWW-Authenticate" -H "Content-Type: application/json" -d '"Basic realm=\"couchdb\""' --user "${username}:${password}"); do sleep 5; done
+
+              until (curl -X PUT "${hostname}/_node/nonode@nohost/_config/httpd/enable_cors" -H "Content-Type: application/json" -d '"true"' --user "${username}:${password}"); do sleep 5; done
+
+              until (curl -X PUT "${hostname}/_node/nonode@nohost/_config/chttpd/enable_cors" -H "Content-Type: application/json" -d '"true"' --user "${username}:${password}"); do sleep 5; done
+
+              until (curl -X PUT "${hostname}/_node/nonode@nohost/_config/chttpd/max_http_request_size" -H "Content-Type: application/json" -d '"4294967296"' --user "${username}:${password}"); do sleep 5; done
+
+              until (curl -X PUT "${hostname}/_node/nonode@nohost/_config/couchdb/max_document_size" -H "Content-Type: application/json" -d '"50000000"' --user "${username}:${password}"); do sleep 5; done
+
+              until (curl -X PUT "${hostname}/_node/nonode@nohost/_config/cors/credentials" -H "Content-Type: application/json" -d '"true"' --user "${username}:${password}"); do sleep 5; done
+
+              until (curl -X PUT "${hostname}/_node/nonode@nohost/_config/cors/origins" -H "Content-Type: application/json" -d '"app://obsidian.md,capacitor://localhost,http://localhost"' --user "${username}:${password}"); do sleep 5; done
+
+              echo "<-- Configuring CouchDB by REST APIs Done!"
+
+              # 設定確認
+              echo "=== Configuration verification ==="
+              curl -u "${username}:${password}" "${hostname}/_node/nonode@nohost/_config/cors"
+
+              # 設定完了後は無限ループで待機（サイドカーとして動作継続）
+              echo "Configuration completed, entering maintenance mode..."
+              while true; do sleep 86400; done
+
+          env:
+            - name: COUCHDB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: couchdb-secrets
+                  key: admin-password
+
       volumes:
         - name: couchdb-data
           persistentVolumeClaim:
             claimName: couchdb-data-pvc
-        - name: setup-script
-          configMap:
-            name: couchdb-setup-script
-            defaultMode: 0755
-
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: couchdb-setup-script
-  namespace: obsidian-sync
-data:
-  setup-script.sh: |
-    #!/bin/bash
-
-    hostname="http://localhost:5984"
-    username="admin"
-    password="${COUCHDB_PASSWORD}"
-
-    echo "$(date): Starting CouchDB configuration..." >> /tmp/setup.log
-
-    # CouchDBが完全に起動するまで待機
-    echo "$(date): Waiting for CouchDB to be ready..." >> /tmp/setup.log
-    for i in $(seq 1 120); do
-      if curl -s -f "${hostname}/_up" > /dev/null 2>&1; then
-        echo "$(date): CouchDB is ready after $i attempts!" >> /tmp/setup.log
-        break
-      fi
-      sleep 5
-    done
-
-    # 既に設定済みかチェック
-    if curl -s -u "${username}:${password}" "${hostname}/_node/nonode@nohost/_config/cors/origins" 2>/dev/null | grep -q "obsidian"; then
-      echo "$(date): CouchDB already configured, skipping setup" >> /tmp/setup.log
-      exit 0
-    fi
-
-    echo "$(date): -- Configuring CouchDB by REST APIs... -->" >> /tmp/setup.log
-
-    # 設定を適用（エラーがあっても続行）
-    curl -X POST "${hostname}/_cluster_setup" -H "Content-Type: application/json" -d "{\"action\":\"enable_single_node\",\"username\":\"${username}\",\"password\":\"${password}\",\"bind_address\":\"0.0.0.0\",\"port\":5984,\"singlenode\":true}" --user "${username}:${password}" >> /tmp/setup.log 2>&1 || echo "cluster_setup failed" >> /tmp/setup.log
-
-    curl -X PUT "${hostname}/_node/nonode@nohost/_config/chttpd/require_valid_user" -H "Content-Type: application/json" -d '"true"' --user "${username}:${password}" >> /tmp/setup.log 2>&1
-
-    curl -X PUT "${hostname}/_node/nonode@nohost/_config/chttpd_auth/require_valid_user" -H "Content-Type: application/json" -d '"true"' --user "${username}:${password}" >> /tmp/setup.log 2>&1
-
-    curl -X PUT "${hostname}/_node/nonode@nohost/_config/httpd/WWW-Authenticate" -H "Content-Type: application/json" -d '"Basic realm=\"couchdb\""' --user "${username}:${password}" >> /tmp/setup.log 2>&1
-
-    curl -X PUT "${hostname}/_node/nonode@nohost/_config/httpd/enable_cors" -H "Content-Type: application/json" -d '"true"' --user "${username}:${password}" >> /tmp/setup.log 2>&1
-
-    curl -X PUT "${hostname}/_node/nonode@nohost/_config/chttpd/enable_cors" -H "Content-Type: application/json" -d '"true"' --user "${username}:${password}" >> /tmp/setup.log 2>&1
-
-    curl -X PUT "${hostname}/_node/nonode@nohost/_config/chttpd/max_http_request_size" -H "Content-Type: application/json" -d '"4294967296"' --user "${username}:${password}" >> /tmp/setup.log 2>&1
-
-    curl -X PUT "${hostname}/_node/nonode@nohost/_config/couchdb/max_document_size" -H "Content-Type: application/json" -d '"50000000"' --user "${username}:${password}" >> /tmp/setup.log 2>&1
-
-    curl -X PUT "${hostname}/_node/nonode@nohost/_config/cors/credentials" -H "Content-Type: application/json" -d '"true"' --user "${username}:${password}" >> /tmp/setup.log 2>&1
-
-    curl -X PUT "${hostname}/_node/nonode@nohost/_config/cors/origins" -H "Content-Type: application/json" -d '"app://obsidian.md,capacitor://localhost,http://localhost"' --user "${username}:${password}" >> /tmp/setup.log 2>&1
-
-    echo "$(date): <-- Configuring CouchDB by REST APIs Done!" >> /tmp/setup.log
-
-    # 設定確認
-    echo "$(date): === Configuration verification ===" >> /tmp/setup.log
-    curl -u "${username}:${password}" "${hostname}/_node/nonode@nohost/_config/cors" >> /tmp/setup.log 2>&1
-
-    echo "$(date): Configuration completed successfully!" >> /tmp/setup.log
 
 ---
 apiVersion: v1
