@@ -72,10 +72,6 @@ spec:
                   name: couchdb-secrets
                   key: cookie
 
-            # 単一ノード設定
-            - name: NODENAME
-              value: "nonode@nohost"
-
           ports:
             - containerPort: 5984
               name: couchdb
