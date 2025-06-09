@@ -14,11 +14,51 @@ spec:
       labels:
         app: couchdb
     spec:
+      initContainers:
+        - name: setup-config
+          image: busybox:1.35
+          command:
+            - /bin/sh
+            - -c
+            - |
+              # 設定ディレクトリを作成
+              mkdir -p /config/local.d
+
+              # Obsidian用の設定ファイルを作成
+              cat > /config/local.d/obsidian.ini << 'EOF'
+              [couchdb]
+              single_node=true
+              max_document_size = 50000000
+
+              [chttpd]
+              require_valid_user = true
+              max_http_request_size = 4294967296
+
+              [chttpd_auth]
+              require_valid_user = true
+
+              [httpd]
+              WWW-Authenticate = Basic realm="couchdb"
+              enable_cors = true
+
+              [cors]
+              origins = *
+              credentials = true
+              methods = GET, PUT, POST, HEAD, DELETE
+              headers = accept, authorization, content-type, origin, referer, x-requested-with
+              EOF
+
+              echo "Configuration file created:"
+              cat /config/local.d/obsidian.ini
+          volumeMounts:
+            - name: config-volume
+              mountPath: /config
+
       containers:
         - name: couchdb
           image: couchdb:3.5.0
           env:
-            # 管理者設定
+            # 基本設定
             - name: COUCHDB_USER
               value: "admin"
             - name: COUCHDB_PASSWORD
@@ -26,13 +66,15 @@ spec:
                 secretKeyRef:
                   name: couchdb-secrets
                   key: admin-password
-
-            # クラスター設定（シングルノード）
             - name: COUCHDB_SECRET
               valueFrom:
                 secretKeyRef:
                   name: couchdb-secrets
                   key: cookie
+
+            # 単一ノード設定
+            - name: NODENAME
+              value: "nonode@nohost"
 
           ports:
             - containerPort: 5984
@@ -66,8 +108,7 @@ spec:
           persistentVolumeClaim:
             claimName: couchdb-data-pvc
         - name: couchdb-config
-          configMap:
-            name: couchdb-config
+          emptyDir: {}
 
 ---
 apiVersion: v1
@@ -81,32 +122,3 @@ spec:
   resources:
     requests:
       storage: 2Gi
-
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: couchdb-config
-  namespace: obsidian-sync
-data:
-  obsidian.ini: |
-    [couchdb]
-    single_node=true
-    max_document_size = 50000000
-
-    [chttpd]
-    require_valid_user = true
-    max_http_request_size = 4294967296
-
-    [chttpd_auth]
-    require_valid_user = true
-
-    [httpd]
-    WWW-Authenticate = Basic realm="couchdb"
-    enable_cors = true
-
-    [cors]
-    origins = *
-    credentials = true
-    methods = GET, PUT, POST, HEAD, DELETE
-    headers = accept, authorization, content-type, origin, referer, x-requested-with
