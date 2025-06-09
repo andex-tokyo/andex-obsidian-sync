@@ -1,0 +1,83 @@
+# kubernetes/couchdb-init-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: couchdb-init
+  namespace: obsidian-sync
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init
+          image: curlimages/curl:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Waiting for CouchDB to be ready..."
+
+              # CouchDBが起動するまで待機（最大5分）
+              for i in $(seq 1 60); do
+                if curl -s -f http://couchdb:5984/_up > /dev/null 2>&1; then
+                  echo "CouchDB is ready!"
+                  break
+                fi
+                echo "Attempt $i: CouchDB not ready yet..."
+                sleep 5
+              done
+
+              # 基本認証のヘッダーを設定
+              AUTH="admin:${COUCHDB_PASSWORD}"
+              BASE_URL="http://couchdb:5984"
+
+              echo "Configuring CouchDB settings..."
+
+              # CORS設定
+              echo "Setting up CORS..."
+              curl -X PUT "${BASE_URL}/_node/_local/_config/httpd/enable_cors" \
+                   -u "$AUTH" -d '"true"' -H "Content-Type: application/json"
+
+              curl -X PUT "${BASE_URL}/_node/_local/_config/cors/origins" \
+                   -u "$AUTH" -d '"*"' -H "Content-Type: application/json"
+
+              curl -X PUT "${BASE_URL}/_node/_local/_config/cors/credentials" \
+                   -u "$AUTH" -d '"true"' -H "Content-Type: application/json"
+
+              curl -X PUT "${BASE_URL}/_node/_local/_config/cors/methods" \
+                   -u "$AUTH" -d '"GET, PUT, POST, HEAD, DELETE"' -H "Content-Type: application/json"
+
+              curl -X PUT "${BASE_URL}/_node/_local/_config/cors/headers" \
+                   -u "$AUTH" -d '"accept, authorization, content-type, origin, referer, x-requested-with"' -H "Content-Type: application/json"
+
+              # セキュリティ設定
+              echo "Setting up security..."
+              curl -X PUT "${BASE_URL}/_node/_local/_config/chttpd/require_valid_user" \
+                   -u "$AUTH" -d '"true"' -H "Content-Type: application/json"
+
+              curl -X PUT "${BASE_URL}/_node/_local/_config/chttpd_auth/require_valid_user" \
+                   -u "$AUTH" -d '"true"' -H "Content-Type: application/json"
+
+              curl -X PUT "${BASE_URL}/_node/_local/_config/httpd/WWW-Authenticate" \
+                   -u "$AUTH" -d '"Basic realm=\"couchdb\""' -H "Content-Type: application/json"
+
+              # サイズ制限設定
+              echo "Setting up size limits..."
+              curl -X PUT "${BASE_URL}/_node/_local/_config/couchdb/max_document_size" \
+                   -u "$AUTH" -d '"50000000"' -H "Content-Type: application/json"
+
+              curl -X PUT "${BASE_URL}/_node/_local/_config/chttpd/max_http_request_size" \
+                   -u "$AUTH" -d '"4294967296"' -H "Content-Type: application/json"
+
+              echo "Configuration completed successfully!"
+
+              # 設定確認
+              echo "Verifying configuration..."
+              curl -s -u "$AUTH" "${BASE_URL}/_node/_local/_config/cors" | head -10
+
+          env:
+            - name: COUCHDB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: couchdb-secrets
+                  key: admin-password
