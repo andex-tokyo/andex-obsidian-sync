@@ -3,4 +3,3 @@ resources:
   - couchdb-secrets-sealed.yaml
   - couchdb-deployment.yaml
   - couchdb-service.yaml
-  - couchdb-init-job.yaml

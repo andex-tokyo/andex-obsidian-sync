@@ -1,4 +1,38 @@
 # kubernetes/couchdb-deployment.yaml
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: couchdb-config
+  namespace: obsidian-sync
+data:
+  local.ini: |
+    [couchdb]
+    single_node=true
+    max_document_size = 50000000
+
+    [chttpd]
+    require_valid_user = true
+    max_http_request_size = 4294967296
+    bind_address = 0.0.0.0
+    port = 5984
+
+    [chttpd_auth]
+    require_valid_user = true
+
+    [httpd]
+    WWW-Authenticate = Basic realm="couchdb"
+    enable_cors = true
+    bind_address = 0.0.0.0
+    port = 5986
+
+    [cors]
+    origins = *
+    credentials = true
+    methods = GET, PUT, POST, HEAD, DELETE
+    headers = accept, authorization, content-type, origin, referer, x-requested-with
+
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -38,6 +72,10 @@ spec:
           volumeMounts:
             - name: couchdb-data
               mountPath: /opt/couchdb/data
+            - name: couchdb-config
+              mountPath: /opt/couchdb/etc/local.ini
+              subPath: local.ini
+              readOnly: false
 
           resources:
             requests:
@@ -60,6 +98,9 @@ spec:
         - name: couchdb-data
           persistentVolumeClaim:
             claimName: couchdb-data-pvc
+        - name: couchdb-config
+          configMap:
+            name: couchdb-config
 
 ---
 apiVersion: v1
