@@ -1,4 +1,4 @@
-# kubernetes/couchdb-deployment.yaml
+# kubernetes/couchdb-deployment-env.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,7 +18,7 @@ spec:
         - name: couchdb
           image: couchdb:3.5.0
           env:
-            # 管理者設定
+            # 基本設定
             - name: COUCHDB_USER
               value: "admin"
             - name: COUCHDB_PASSWORD
@@ -26,25 +26,27 @@ spec:
                 secretKeyRef:
                   name: couchdb-secrets
                   key: admin-password
-
-            # クラスター設定（シングルノード）
             - name: COUCHDB_SECRET
               valueFrom:
                 secretKeyRef:
                   name: couchdb-secrets
                   key: cookie
 
-            # CORS設定（Obsidianからのアクセスを許可）
-            - name: COUCHDB_CORS_ENABLE_CORS
+            # セキュリティ設定
+            - name: COUCHDB_REQUIRE_VALID_USER
+              value: "true"
+
+            # CORS設定
+            - name: COUCHDB_ENABLE_CORS
               value: "true"
             - name: COUCHDB_CORS_CREDENTIALS
               value: "true"
             - name: COUCHDB_CORS_ORIGINS
               value: "*"
             - name: COUCHDB_CORS_HEADERS
-              value: "accept, authorization, content-type, origin, referer"
+              value: "accept,authorization,content-type,origin,referer,x-requested-with"
             - name: COUCHDB_CORS_METHODS
-              value: "GET, PUT, POST, HEAD, DELETE"
+              value: "GET,PUT,POST,HEAD,DELETE"
 
           ports:
             - containerPort: 5984
