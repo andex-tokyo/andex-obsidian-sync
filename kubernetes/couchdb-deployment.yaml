@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: couchdb
-          image: couchdb:3.3
+          image: couchdb:3.5.0
           env:
             # 管理者設定
             - name: COUCHDB_USER
