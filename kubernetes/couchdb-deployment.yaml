@@ -14,53 +14,6 @@ spec:
       labels:
         app: couchdb
     spec:
-      initContainers:
-        - name: setup-config
-          image: couchdb:3.5.0
-          command:
-            - /bin/sh
-            - -c
-            - |
-              echo "Setting up persistent configuration..."
-
-              cat > /persistent-config/obsidian.ini << 'EOF'
-              [couchdb]
-              single_node=true
-              max_document_size = 50000000
-
-              [chttpd]
-              require_valid_user = true
-              max_http_request_size = 4294967296
-              bind_address = 0.0.0.0
-              port = 5984
-
-              [chttpd_auth]
-              require_valid_user = true
-
-              [httpd]
-              WWW-Authenticate = Basic realm="couchdb"
-              enable_cors = true
-              bind_address = 0.0.0.0
-              port = 5986
-
-              [cors]
-              origins = *
-              credentials = true
-              methods = GET, PUT, POST, HEAD, DELETE
-              headers = accept, authorization, content-type, origin, referer, x-requested-with
-              EOF
-
-              echo "Configuration created at /persistent-config/obsidian.ini:"
-              cat /persistent-config/obsidian.ini
-
-              # 権限設定
-              chown couchdb:couchdb /persistent-config/obsidian.ini || true
-              chmod 644 /persistent-config/obsidian.ini || true
-
-          volumeMounts:
-            - name: couchdb-config-persistent
-              mountPath: /persistent-config
-
       containers:
         - name: couchdb
           image: couchdb:3.5.0
@@ -85,8 +38,20 @@ spec:
           volumeMounts:
             - name: couchdb-data
               mountPath: /opt/couchdb/data
-            - name: couchdb-config-persistent
-              mountPath: /opt/couchdb/etc/local.d
+            - name: setup-script
+              mountPath: /setup-script.sh
+              subPath: setup-script.sh
+
+          # PostStartフックで設定スクリプトを実行
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/bash
+                  - -c
+                  - |
+                    # バックグラウンドで設定スクリプトを実行
+                    nohup /bin/bash /setup-script.sh > /tmp/setup.log 2>&1 &
 
           resources:
             requests:
@@ -109,9 +74,73 @@ spec:
         - name: couchdb-data
           persistentVolumeClaim:
             claimName: couchdb-data-pvc
-        - name: couchdb-config-persistent
-          persistentVolumeClaim:
-            claimName: couchdb-config-pvc
+        - name: setup-script
+          configMap:
+            name: couchdb-setup-script
+            defaultMode: 0755
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: couchdb-setup-script
+  namespace: obsidian-sync
+data:
+  setup-script.sh: |
+    #!/bin/bash
+
+    hostname="http://localhost:5984"
+    username="admin"
+    password="${COUCHDB_PASSWORD}"
+
+    echo "$(date): Starting CouchDB configuration..." >> /tmp/setup.log
+
+    # CouchDBが完全に起動するまで待機
+    echo "$(date): Waiting for CouchDB to be ready..." >> /tmp/setup.log
+    for i in $(seq 1 120); do
+      if curl -s -f "${hostname}/_up" > /dev/null 2>&1; then
+        echo "$(date): CouchDB is ready after $i attempts!" >> /tmp/setup.log
+        break
+      fi
+      sleep 5
+    done
+
+    # 既に設定済みかチェック
+    if curl -s -u "${username}:${password}" "${hostname}/_node/nonode@nohost/_config/cors/origins" 2>/dev/null | grep -q "obsidian"; then
+      echo "$(date): CouchDB already configured, skipping setup" >> /tmp/setup.log
+      exit 0
+    fi
+
+    echo "$(date): -- Configuring CouchDB by REST APIs... -->" >> /tmp/setup.log
+
+    # 設定を適用（エラーがあっても続行）
+    curl -X POST "${hostname}/_cluster_setup" -H "Content-Type: application/json" -d "{\"action\":\"enable_single_node\",\"username\":\"${username}\",\"password\":\"${password}\",\"bind_address\":\"0.0.0.0\",\"port\":5984,\"singlenode\":true}" --user "${username}:${password}" >> /tmp/setup.log 2>&1 || echo "cluster_setup failed" >> /tmp/setup.log
+
+    curl -X PUT "${hostname}/_node/nonode@nohost/_config/chttpd/require_valid_user" -H "Content-Type: application/json" -d '"true"' --user "${username}:${password}" >> /tmp/setup.log 2>&1
+
+    curl -X PUT "${hostname}/_node/nonode@nohost/_config/chttpd_auth/require_valid_user" -H "Content-Type: application/json" -d '"true"' --user "${username}:${password}" >> /tmp/setup.log 2>&1
+
+    curl -X PUT "${hostname}/_node/nonode@nohost/_config/httpd/WWW-Authenticate" -H "Content-Type: application/json" -d '"Basic realm=\"couchdb\""' --user "${username}:${password}" >> /tmp/setup.log 2>&1
+
+    curl -X PUT "${hostname}/_node/nonode@nohost/_config/httpd/enable_cors" -H "Content-Type: application/json" -d '"true"' --user "${username}:${password}" >> /tmp/setup.log 2>&1
+
+    curl -X PUT "${hostname}/_node/nonode@nohost/_config/chttpd/enable_cors" -H "Content-Type: application/json" -d '"true"' --user "${username}:${password}" >> /tmp/setup.log 2>&1
+
+    curl -X PUT "${hostname}/_node/nonode@nohost/_config/chttpd/max_http_request_size" -H "Content-Type: application/json" -d '"4294967296"' --user "${username}:${password}" >> /tmp/setup.log 2>&1
+
+    curl -X PUT "${hostname}/_node/nonode@nohost/_config/couchdb/max_document_size" -H "Content-Type: application/json" -d '"50000000"' --user "${username}:${password}" >> /tmp/setup.log 2>&1
+
+    curl -X PUT "${hostname}/_node/nonode@nohost/_config/cors/credentials" -H "Content-Type: application/json" -d '"true"' --user "${username}:${password}" >> /tmp/setup.log 2>&1
+
+    curl -X PUT "${hostname}/_node/nonode@nohost/_config/cors/origins" -H "Content-Type: application/json" -d '"app://obsidian.md,capacitor://localhost,http://localhost"' --user "${username}:${password}" >> /tmp/setup.log 2>&1
+
+    echo "$(date): <-- Configuring CouchDB by REST APIs Done!" >> /tmp/setup.log
+
+    # 設定確認
+    echo "$(date): === Configuration verification ===" >> /tmp/setup.log
+    curl -u "${username}:${password}" "${hostname}/_node/nonode@nohost/_config/cors" >> /tmp/setup.log 2>&1
+
+    echo "$(date): Configuration completed successfully!" >> /tmp/setup.log
 
 ---
 apiVersion: v1
@@ -125,16 +154,3 @@ spec:
   resources:
     requests:
       storage: 2Gi
-
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: couchdb-config-pvc
-  namespace: obsidian-sync
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 100Mi
