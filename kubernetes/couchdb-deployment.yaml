@@ -14,51 +14,10 @@ spec:
       labels:
         app: couchdb
     spec:
-      initContainers:
-        - name: setup-config
-          image: busybox:1.35
-          command:
-            - /bin/sh
-            - -c
-            - |
-              # 設定ディレクトリを作成
-              mkdir -p /config/local.d
-
-              # Obsidian用の設定ファイルを作成
-              cat > /config/local.d/obsidian.ini << 'EOF'
-              [couchdb]
-              single_node=true
-              max_document_size = 50000000
-
-              [chttpd]
-              require_valid_user = true
-              max_http_request_size = 4294967296
-
-              [chttpd_auth]
-              require_valid_user = true
-
-              [httpd]
-              WWW-Authenticate = Basic realm="couchdb"
-              enable_cors = true
-
-              [cors]
-              origins = *
-              credentials = true
-              methods = GET, PUT, POST, HEAD, DELETE
-              headers = accept, authorization, content-type, origin, referer, x-requested-with
-              EOF
-
-              echo "Configuration file created:"
-              cat /config/local.d/obsidian.ini
-          volumeMounts:
-            - name: couchdb-config
-              mountPath: /config
-
       containers:
         - name: couchdb
           image: couchdb:3.5.0
           env:
-            # 基本設定
             - name: COUCHDB_USER
               value: "admin"
             - name: COUCHDB_PASSWORD
@@ -71,6 +30,8 @@ spec:
                 secretKeyRef:
                   name: couchdb-secrets
                   key: cookie
+            - name: NODENAME
+              value: "nonode@nohost"
 
           ports:
             - containerPort: 5984
@@ -79,8 +40,6 @@ spec:
           volumeMounts:
             - name: couchdb-data
               mountPath: /opt/couchdb/data
-            - name: couchdb-config
-              mountPath: /opt/couchdb/etc/local.d
 
           resources:
             requests:
@@ -103,8 +62,6 @@ spec:
         - name: couchdb-data
           persistentVolumeClaim:
             claimName: couchdb-data-pvc
-        - name: couchdb-config
-          emptyDir: {}
 
 ---
 apiVersion: v1
