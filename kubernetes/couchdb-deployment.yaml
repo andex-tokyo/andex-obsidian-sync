@@ -1,38 +1,4 @@
 # kubernetes/couchdb-deployment.yaml
-
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: couchdb-config
-  namespace: obsidian-sync
-data:
-  local.ini: |
-    [couchdb]
-    single_node=true
-    max_document_size = 50000000
-
-    [chttpd]
-    require_valid_user = true
-    max_http_request_size = 4294967296
-    bind_address = 0.0.0.0
-    port = 5984
-
-    [chttpd_auth]
-    require_valid_user = true
-
-    [httpd]
-    WWW-Authenticate = Basic realm="couchdb"
-    enable_cors = true
-    bind_address = 0.0.0.0
-    port = 5986
-
-    [cors]
-    origins = *
-    credentials = true
-    methods = GET, PUT, POST, HEAD, DELETE
-    headers = accept, authorization, content-type, origin, referer, x-requested-with
-
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -48,6 +14,57 @@ spec:
       labels:
         app: couchdb
     spec:
+      initContainers:
+        - name: setup-config
+          image: couchdb:3.3
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Setting up persistent configuration..."
+
+              # 設定ディレクトリを作成
+              mkdir -p /persistent-config/local.d
+
+              # 設定ファイルを作成
+              cat > /persistent-config/local.d/obsidian.ini << 'EOF'
+              [couchdb]
+              single_node=true
+              max_document_size = 50000000
+
+              [chttpd]
+              require_valid_user = true
+              max_http_request_size = 4294967296
+              bind_address = 0.0.0.0
+              port = 5984
+
+              [chttpd_auth]
+              require_valid_user = true
+
+              [httpd]
+              WWW-Authenticate = Basic realm="couchdb"
+              enable_cors = true
+              bind_address = 0.0.0.0
+              port = 5986
+
+              [cors]
+              origins = *
+              credentials = true
+              methods = GET, PUT, POST, HEAD, DELETE
+              headers = accept, authorization, content-type, origin, referer, x-requested-with
+              EOF
+
+              echo "Configuration created:"
+              cat /persistent-config/local.d/obsidian.ini
+
+              # 権限設定
+              chown -R couchdb:couchdb /persistent-config/ || true
+              chmod -R 644 /persistent-config/ || true
+
+          volumeMounts:
+            - name: couchdb-config-persistent
+              mountPath: /persistent-config
+
       containers:
         - name: couchdb
           image: couchdb:3.5.0
@@ -72,10 +89,8 @@ spec:
           volumeMounts:
             - name: couchdb-data
               mountPath: /opt/couchdb/data
-            - name: couchdb-config
-              mountPath: /opt/couchdb/etc/local.ini
-              subPath: local.ini
-              readOnly: false
+            - name: couchdb-config-persistent
+              mountPath: /opt/couchdb/etc/local.d
 
           resources:
             requests:
@@ -98,9 +113,9 @@ spec:
         - name: couchdb-data
           persistentVolumeClaim:
             claimName: couchdb-data-pvc
-        - name: couchdb-config
-          configMap:
-            name: couchdb-config
+        - name: couchdb-config-persistent
+          persistentVolumeClaim:
+            claimName: couchdb-config-pvc
 
 ---
 apiVersion: v1
@@ -114,3 +129,16 @@ spec:
   resources:
     requests:
       storage: 2Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: couchdb-config-pvc
+  namespace: obsidian-sync
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Mi
