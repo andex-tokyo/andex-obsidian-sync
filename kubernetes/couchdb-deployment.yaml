@@ -105,6 +105,44 @@ spec:
               echo "=== Configuration verification ==="
               curl -u "${username}:${password}" "${hostname}/_node/nonode@nohost/_config/cors"
 
+              # ユーザー作成
+              echo "Creating additional user..."
+              
+              # ユーザー1を作成（adminは既存なので追加ユーザーのみ）
+              user1_name="risako"
+              user1_password="${USER1_PASSWORD}"
+              user1_db="risako-ob"
+
+              # ユーザー1が既に存在するかチェック
+              if curl -s -u "${username}:${password}" "${hostname}/_users/org.couchdb.user:${user1_name}" | grep -q "${user1_name}"; then
+                echo "User ${user1_name} already exists, skipping user creation"
+              else
+                echo "Creating user: ${user1_name}"
+                curl -X PUT "${hostname}/_users/org.couchdb.user:${user1_name}" \
+                  -H "Content-Type: application/json" \
+                  -d "{\"name\":\"${user1_name}\",\"password\":\"${user1_password}\",\"roles\":[],\"type\":\"user\"}" \
+                  --user "${username}:${password}"
+              fi
+              
+              # データベースが既に存在するかチェック
+              if curl -s -u "${username}:${password}" "${hostname}/${user1_db}" | grep -q "db_name"; then
+                echo "Database ${user1_db} already exists, skipping database creation"
+              else
+                echo "Creating database: ${user1_db}"
+                curl -X PUT "${hostname}/${user1_db}" \
+                  --user "${username}:${password}"
+                
+                curl -X PUT "${hostname}/${user1_db}/_security" \
+                  -H "Content-Type: application/json" \
+                  -d "{\"admins\":{\"names\":[],\"roles\":[]},\"members\":{\"names\":[\"${user1_name}\"],\"roles\":[]}}" \
+                  --user "${username}:${password}"
+              fi
+              
+              echo "User setup completed!"
+              echo "Available users:"
+              echo "  - admin (existing data)"
+              echo "  - user1 (new database: ${user1_db})"
+              
               # 設定完了後は無限ループで待機（サイドカーとして動作継続）
               echo "Configuration completed, entering maintenance mode..."
               while true; do sleep 86400; done
@@ -115,6 +153,11 @@ spec:
                 secretKeyRef:
                   name: couchdb-secrets
                   key: admin-password
+            - name: USER1_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: couchdb-secrets
+                  key: user1-password
 
       volumes:
         - name: couchdb-data
